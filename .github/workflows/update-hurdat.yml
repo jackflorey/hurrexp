@@ -16,37 +16,83 @@ jobs:
       
       - name: Fetch Atlantic HURDAT2
         run: |
-          # Download HTML and extract data between <pre> tags
-          curl -sL "https://www.aoml.noaa.gov/hrd/hurdat/hurdat2.html" | \
-            sed -n '/<pre>/,/<\/pre>/p' | \
-            sed '1d;$d' > data/hurdat2-atlantic.txt
-          
-          echo "Atlantic data fetched: $(wc -l < data/hurdat2-atlantic.txt) lines"
-          head -5 data/hurdat2-atlantic.txt
+          # Retry up to 3 times with increasing delays
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt: Fetching Atlantic data..."
+            
+            # Download with timeout and save full response for debugging
+            HTTP_CODE=$(curl -sL -w "%{http_code}" \
+              --connect-timeout 30 \
+              --max-time 120 \
+              "https://www.aoml.noaa.gov/hrd/hurdat/hurdat2.html" \
+              -o /tmp/atlantic.html)
+            
+            echo "HTTP response code: $HTTP_CODE"
+            echo "Downloaded file size: $(wc -c < /tmp/atlantic.html) bytes"
+            
+            # Extract data between <pre> tags
+            sed -n '/<pre>/,/<\/pre>/p' /tmp/atlantic.html | sed '1d;$d' > data/hurdat2-atlantic.txt
+            
+            LINES=$(wc -l < data/hurdat2-atlantic.txt)
+            echo "Extracted $LINES lines"
+            
+            if [ "$LINES" -gt 1000 ]; then
+              echo "Atlantic data fetched successfully"
+              head -5 data/hurdat2-atlantic.txt
+              break
+            else
+              echo "Data extraction failed or incomplete"
+              if [ "$attempt" -lt 3 ]; then
+                echo "Waiting 30 seconds before retry..."
+                sleep 30
+              else
+                echo "All attempts failed. HTML preview:"
+                head -100 /tmp/atlantic.html
+                exit 1
+              fi
+            fi
+          done
       
       - name: Fetch East Pacific HURDAT2
         run: |
-          # Download HTML and extract data between <pre> tags
-          curl -sL "https://www.aoml.noaa.gov/hrd/hurdat/hurdat2-nepac.html" | \
-            sed -n '/<pre>/,/<\/pre>/p' | \
-            sed '1d;$d' > data/hurdat2-pacific.txt
-          
-          echo "Pacific data fetched: $(wc -l < data/hurdat2-pacific.txt) lines"
-          head -5 data/hurdat2-pacific.txt
+          # Retry up to 3 times with increasing delays
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt: Fetching Pacific data..."
+            
+            HTTP_CODE=$(curl -sL -w "%{http_code}" \
+              --connect-timeout 30 \
+              --max-time 120 \
+              "https://www.aoml.noaa.gov/hrd/hurdat/hurdat2-nepac.html" \
+              -o /tmp/pacific.html)
+            
+            echo "HTTP response code: $HTTP_CODE"
+            echo "Downloaded file size: $(wc -c < /tmp/pacific.html) bytes"
+            
+            # Extract data between <pre> tags
+            sed -n '/<pre>/,/<\/pre>/p' /tmp/pacific.html | sed '1d;$d' > data/hurdat2-pacific.txt
+            
+            LINES=$(wc -l < data/hurdat2-pacific.txt)
+            echo "Extracted $LINES lines"
+            
+            if [ "$LINES" -gt 1000 ]; then
+              echo "Pacific data fetched successfully"
+              head -5 data/hurdat2-pacific.txt
+              break
+            else
+              echo "Data extraction failed or incomplete"
+              if [ "$attempt" -lt 3 ]; then
+                echo "Waiting 30 seconds before retry..."
+                sleep 30
+              else
+                echo "All attempts failed. HTML preview:"
+                head -100 /tmp/pacific.html
+                exit 1
+              fi
+            fi
+          done
       
       - name: Validate data
         run: |
-          # Check that files have content and look like HURDAT2 format
-          if [ ! -s data/hurdat2-atlantic.txt ]; then
-            echo "ERROR: Atlantic data file is empty"
-            exit 1
-          fi
-          
-          if [ ! -s data/hurdat2-pacific.txt ]; then
-            echo "ERROR: Pacific data file is empty"
-            exit 1
-          fi
-          
           # Check for expected format (AL or EP/CP storm IDs)
           if ! grep -q "^AL" data/hurdat2-atlantic.txt; then
             echo "ERROR: Atlantic data doesn't contain expected AL storm IDs"
@@ -59,6 +105,8 @@ jobs:
           fi
           
           echo "Data validation passed"
+          echo "Atlantic: $(wc -l < data/hurdat2-atlantic.txt) lines"
+          echo "Pacific: $(wc -l < data/hurdat2-pacific.txt) lines"
       
       - name: Commit and push if changed
         run: |
